@@ -11,7 +11,6 @@
 #include <BLESecurity.h>
 #include <BLE2902.h>
 #include <vector>
-#include "Pulse.h"
 
 #define SCREEN_WIDTH 128
 #define SCREEN_HEIGHT 64
@@ -33,8 +32,6 @@ struct DoshaValues {
 // Global variables
 Adafruit_SSD1306 display(SCREEN_WIDTH, SCREEN_HEIGHT, &Wire, OLED_RESET);
 MAX30105 particleSensor;
-Pulse pulseIR;
-Pulse pulseRed;
 
 BLEServer* pServer = nullptr;
 BLECharacteristic* pHeartRateCharacteristic = nullptr;
@@ -77,7 +74,7 @@ void displayCenteredText(const String& text, int yOffset = 0) {
   display.println(text);
 }
 
-
+bool detailsShown=false;
 
 // Function to parse user details from string
 void parseUserDetails(const std::string& data) {
@@ -227,8 +224,8 @@ void ReScanFingerCountDown(unsigned long duration, long baseIR) {
 
 uint16_t connId = 0;
 // const char* allowedDev= "68:68:94:32:AA:B7"; //- tavisa 1
-const char* allowedDev="79:84:1F:C6:0F:33"; //- tavisa 2
-// const char* allowedDev = "4F:A5:92:15:23:0B";  //-tavisa 3
+// const char* allowedDev="79:84:1F:C6:0F:33"; //- tavisa 2
+const char* allowedDev = "4F:A5:92:15:23:0B";  //-tavisa 3
 bool connectionAcknowledged = false;
 class MyServerCallbacks : public BLEServerCallbacks {
   void onConnect(BLEServer* pServer, esp_ble_gatts_cb_param_t* param) override {
@@ -243,7 +240,7 @@ class MyServerCallbacks : public BLEServerCallbacks {
     Serial.print("Connected Device MAC: ");
     Serial.println(macStr);
 
-    if (strcasecmp(macStr, allowedDev) == 0 || 1==1 ){
+    if (strcasecmp(macStr, allowedDev) == 0 || 1==1){
       Serial.println("authorised device connected");
       deviceConnected = true;
     } else {
@@ -253,7 +250,7 @@ class MyServerCallbacks : public BLEServerCallbacks {
 
       pServer->disconnect(connId);
       deviceConnected = false;
-    }
+    }       
   }
 
   void onDisconnect(BLEServer* pServer) override {
@@ -295,6 +292,7 @@ class UserDetailsCallbacks : public BLECharacteristicCallbacks {
     std::string value(pCharacteristic->getValue().c_str());
     if (value.length() > 0) {
       parseUserDetails(value);
+      detailsShown =true;
     }
   }
 };
@@ -526,12 +524,12 @@ void setup() {
   }
 
   // Optimized sensor settings for better readings
-  particleSensor.setup(0x3C, 4, 2, 200, 411, 4096);
+  particleSensor.setup(0x1F, 4, 2, 200, 411, 4096);
   particleSensor.enableDIETEMPRDY();
 
   // BLEDevice::init("TAVISA-1");
-  BLEDevice::init("TAVISA-2");
-  // BLEDevice::init("TAVISA-3");
+  // BLEDevice::init("TAVISA-2");
+  BLEDevice::init("TAVISA-3");
 
 
   // BLEScan* pBLEScan = BLEDevice::getScan();
@@ -612,7 +610,9 @@ void loop() {
   if (!deviceConnected || !dataReceived) {
     return;
   }
-
+  while(!detailsShown){
+    
+  }
   bool fingerDetected = false;
   unsigned long startFingerCheck = millis();
   long baseIR = particleSensor.getIR();  // Measure ambient IR before checki
@@ -628,15 +628,39 @@ void loop() {
     }
     delay(100);  // Polling delay without altering the display
   }
-
+    // **NEW: Stabilization Phase**
   if (fingerDetected) {
+      unsigned long startStabilization = millis();
+      bool stable = true;
+
+      while (millis() - startStabilization < 5000) {  // Wait 5 seconds
+          long irValue = particleSensor.getIR();
+          if (irValue < baseIR + 20000) {  
+              stable = false;  // If IR drops, finger isn't stable
+              break;
+          }
+          delay(100);
+      }
+
+      if (stable) {
+          display.clearDisplay();
+          displayCenteredText("Finger detected!");
+          displayCenteredText("Processing...", 10);
+          display.display();
+          delay(1000);
+      } else {
+          fingerDetected = false;  // Reset detection if unstable
+      }
+  }
+  
+ /*  if (fingerDetected) {
     display.clearDisplay();
     displayCenteredText("Finger detected!");
     displayCenteredText("Processing...", 10);
     display.display();
     delay(1000);
   }
-
+ */
   if (fingerDetected) {
     unsigned long startTime = millis();
     int validReadings = 0;
